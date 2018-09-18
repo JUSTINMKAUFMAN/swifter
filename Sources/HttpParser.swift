@@ -59,10 +59,53 @@ public class HttpParser {
                 return c + [(name, value)]
         }
     }
+
+    public func readContent(_ socket: Socket, request: HttpRequest, filePreprocess: Bool) throws {
+        guard let contentType = request.headers["content-type"],
+            let contentLength = request.headers["content-length"],
+            let contentLengthValue = Int(contentLength) else {
+                return
+        }
+        let isFileUpload = contentType == "application/octet-stream"
+        if isFileUpload && filePreprocess {
+            request.tempFile = try readFile(socket, length: contentLengthValue)
+        }
+        else {
+            request.body = try readBody(socket, size: contentLengthValue)
+        }
+    }
+
+    private let kBufferLength = 1024
+
+    private func readFile(_ socket: Socket, length: Int) throws -> String {
+        var offset = 0
+        let filePath = NSTemporaryDirectory() + "/" + NSUUID().uuidString
+        let file = try filePath.openNewForWriting()
+
+        while offset < length {
+            let length = offset + kBufferLength < length ? kBufferLength : length - offset
+            let buffer = try socket.read(length: length)
+            try file.write(buffer)
+            offset += buffer.count
+        }
+        file.close()
+        return filePath
+    }
     
     private func readBody(_ socket: Socket, size: Int) throws -> [UInt8] {
         var body = [UInt8]()
-        for _ in 0..<size { body.append(try socket.read()) }
+
+        // Old approach read one byte at a time
+        // for _ in 0..<size { body.append(try socket.read()) }
+
+        var offset = 0
+        while offset < size {
+            let length = offset + kBufferLength < size ? kBufferLength : size - offset
+            let buffer = try socket.read(length: length)
+            body.append(contentsOf: buffer)
+            offset += buffer.count
+        }
+
         return body
     }
     

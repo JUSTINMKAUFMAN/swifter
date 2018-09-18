@@ -21,31 +21,32 @@ public protocol HttpResponseBodyWriter {
 }
 
 public enum HttpResponseBody {
-    
-    case json(AnyObject)
+
+    public enum RawDataType {
+        case any
+        case json
+    }
+
+    static func json<Body: Encodable>(_ body: Body) throws -> HttpResponseBody {
+        let encoder = JSONEncoder()
+
+        let data = try encoder.encode(object)
+
+        return .data(data, .json)
+    }
+
+    static func data(_ data: Data, _ type: RawDataType = .any) -> HttpResponseBody {
+        return .rawData(data, type)
+    }
+
     case html(String)
     case text(String)
-    case data(Data)
+    case rawData(Data, RawDataType)
     case custom(Any, (Any) throws -> String)
-    
+
     func content() -> (Int, ((HttpResponseBodyWriter) throws -> Void)?) {
         do {
             switch self {
-            case .json(let object):
-                #if os(Linux)
-                    let data = [UInt8]("Not ready for Linux.".utf8)
-                    return (data.count, {
-                        try $0.write(data)
-                    })
-                #else
-                    guard JSONSerialization.isValidJSONObject(object) else {
-                        throw SerializationError.invalidObject
-                    }
-                    let data = try JSONSerialization.data(withJSONObject: object)
-                    return (data.count, {
-                        try $0.write(data)
-                    })
-                #endif
             case .text(let body):
                 let data = [UInt8](body.utf8)
                 return (data.count, {
@@ -57,7 +58,7 @@ public enum HttpResponseBody {
                 return (data.count, {
                     try $0.write(data)
                 })
-            case .data(let data):
+            case .rawData(let data, _):
                 return (data.count, {
                     try $0.write(data)
                 })
@@ -78,7 +79,7 @@ public enum HttpResponseBody {
 }
 
 public enum HttpResponse {
-    
+
     case switchProtocols([String: String], (Socket) -> Void)
     case ok(HttpResponseBody), created, accepted
     case movedPermanently(String)
@@ -101,7 +102,7 @@ public enum HttpResponse {
         case .raw(let code, _ , _, _) : return code
         }
     }
-    
+
     func reasonPhrase() -> String {
         switch self {
         case .switchProtocols(_, _)    : return "Switching Protocols"
@@ -117,7 +118,7 @@ public enum HttpResponse {
         case .raw(_, let phrase, _, _) : return phrase
         }
     }
-    
+
     func headers() -> [String: String] {
         var headers = ["Server" : "Swifter \(HttpServer.VERSION)"]
         switch self {
@@ -127,9 +128,14 @@ public enum HttpResponse {
             }
         case .ok(let body):
             switch body {
-            case .json(_)   : headers["Content-Type"] = "application/json"
-            case .html(_)   : headers["Content-Type"] = "text/html"
-            default:break
+            case .rawData(_, let type):
+                if case .json = type {
+                    headers["Content-Type"] = "application/json"
+                }
+            case .html:
+                headers["Content-Type"] = "text/html"
+            default:
+                break
             }
         case .movedPermanently(let location):
             headers["Location"] = location
@@ -143,7 +149,7 @@ public enum HttpResponse {
         }
         return headers
     }
-    
+
     func content() -> (length: Int, write: ((HttpResponseBodyWriter) throws -> Void)?) {
         switch self {
         case .ok(let body)             : return body.content()
@@ -152,7 +158,7 @@ public enum HttpResponse {
         default                        : return (-1, nil)
         }
     }
-    
+
     func socketSession() -> ((Socket) -> Void)?  {
         switch self {
         case .switchProtocols(_, let handler) : return handler
@@ -162,15 +168,15 @@ public enum HttpResponse {
 }
 
 /**
-    Makes it possible to compare handler responses with '==', but
-	ignores any associated values. This should generally be what
-	you want. E.g.:
-	
-    let resp = handler(updatedRequest)
-        if resp == .NotFound {
-        print("Client requested not found: \(request.url)")
-    }
-*/
+ Makes it possible to compare handler responses with '==', but
+ ignores any associated values. This should generally be what
+ you want. E.g.:
+
+ let resp = handler(updatedRequest)
+ if resp == .NotFound {
+ print("Client requested not found: \(request.url)")
+ }
+ */
 
 func ==(inLeft: HttpResponse, inRight: HttpResponse) -> Bool {
     return inLeft.statusCode() == inRight.statusCode()

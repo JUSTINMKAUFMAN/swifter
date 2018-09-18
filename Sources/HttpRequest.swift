@@ -16,9 +16,17 @@ public class HttpRequest {
     public var body: [UInt8] = []
     public var address: String? = ""
     public var params: [String: String] = [:]
-    
+    public var tempFile: String?
+
     public init() {}
-    
+
+    public func removeTempFileIfExists() throws {
+        if let path = tempFile, try path.exists() {
+            try FileManager.default.removeItem(atPath: path)
+        }
+        tempFile = nil
+    }
+
     public func hasTokenForHeader(_ headerName: String, token: String) -> Bool {
         guard let headerValue = headers[headerName] else {
             return false
@@ -153,7 +161,7 @@ public class HttpRequest {
             matchOffset = ( x == boundaryArray[matchOffset] ? matchOffset + 1 : 0 )
             body.append(x)
             if matchOffset == boundaryArray.count {
-                body.removeSubrange(CountableRange<Int>(body.count-matchOffset ..< body.count))
+                body.removeSubrange((body.count-matchOffset ..< body.count))
                 if body.last == HttpRequest.NL {
                     body.removeLast()
                     if body.last == HttpRequest.CR {

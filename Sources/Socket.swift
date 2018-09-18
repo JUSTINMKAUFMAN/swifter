@@ -111,6 +111,20 @@ open class Socket: Hashable, Equatable {
             sent += s
         }
     }
+
+    open func read(length: Int) throws -> [UInt8] {
+        var buffer = [UInt8](repeating: 0, count: length)
+        let count = recv(self.socketFileDescriptor as Int32, &buffer, buffer.count, 0)
+        if count <= 0 {
+            throw SocketError.recvFailed(Errno.description())
+        }
+
+        if count < length {
+            buffer.removeSubrange(count..<length)
+        }
+
+        return buffer
+    }
     
     open func read() throws -> UInt8 {
         var buffer = [UInt8](repeating: 0, count: 1)
